@@ -1,4 +1,6 @@
 package com.tenco.web_socket_step.polling;
 
-public interface PollingChatRepository {
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface PollingChatRepository extends JpaRepository<PollingChat, Long> {
 }
