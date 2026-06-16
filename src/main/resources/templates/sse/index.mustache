@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Document</title>
+    <style>
+        * {box-sizing: border-box}
+        body {
+           margin: 20px;
+           background-color: #f5f5f5;
+           display: flex;
+           justify-content: center;
+           align-items: center;
+        }
+        .container {
+            width: 500px;
+            height: 600px;
+            background-color: white;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.2);
+
+            overflow: hidden;
+        }
+        .header {
+            background-color: #385ea3;
+            color: white;
+            text-align: center;
+            padding: 15px;
+        }
+        .chat-box {
+            flex: 1;
+            background-color: white;
+
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .msg-box {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+        .name {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 5px;
+            margin-left: 5px;
+        }
+        .msg {
+            background-color: #e9e9eb;
+            padding: 10px 15px;
+            border-radius: 15px;
+            border-top-left-radius: 0;
+            max-width: 80%;
+        }
+
+        .input-area {
+            background-color: #f0f2f5;
+            padding: 15px;
+            border-top: 1px solid #ddd;
+
+            display: flex;
+            gap: 10px;
+        }
+        .input-sender {
+          width: 80px;
+          padding: 10px;
+          border: 1px solid #ccc;
+          border-radius: 5px;
+        }
+        .input-msg {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .btn-send {
+           background-color: #385ea3;
+           color: white;
+           border-radius: 5px;
+           border : none;
+           padding: 10px;
+           cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h3>SSE 채팅방</h3>
+        <p>새로고침 없음</p>
+    </div>
+    <div class="chat-box" id="chatBox">
+
+        <!-- 반복문 처리 예정     -->
+        {{#chatList}}
+        <div class="msg-wrap">
+            <div class="msg-box">
+                <span class="name">{{sender}}</span>
+                <span class="msg">{{message}}</span>
+            </div>
+        </div>
+        {{/chatList}}
+
+    </div>
+
+    <form action="" method="post" class="input-area" id="chatForm" >
+        <input type="text" name="sender" class="input-sender" id="sender" value="익명" required>
+        <input type="text" name="message" class="input-msg" id="message" placeholder="내용을 입력" autofocus required>
+        <button type="submit" class="btn-send">전송</button>
+    </form>
+</div>
+    <script>
+        const chatBox = document.getElementById("chatBox");
+        const chatForm = document.getElementById("chatForm");
+
+        // XSS 방어용 텍스트 치환 함수 (HTML Escape)
+        function escapeHTML(text) {
+            // 정규 표현식
+            return text.replace(/&/g, '&amp;') // 1. 문장 전체에서 '&' 찾아서 안전한 단순 문자열로 치환
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;') // 쌍따옴표 무력화
+            .replace(/'/g, '&#039;'); // 홑따옴표 무력화
+        }
+
+        // 1. 스크롤 바닥 고정 (scrollHeight를 대입해야 바닥으로 내려갑니다)
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        // SSE (js 측 , java 측 코드)
+        const eventSource = new EventSource("/sse/connect");
+
+        // 연결 성공 로그
+        eventSource.onopen = () => console.log('sse 연결 성공');
+
+        // 에러 처리 및 자동 연결 매커니즘
+        eventSource.onerror = () => console.log('sse 연결 에러 (특별하게 자동 재연결 처리 함)');
+
+        // 페이지 종료시 연결 닫기
+        window.addEventListener('beforeunload', () => {
+            eventSource.close();
+        });
+
+        // 채팅 메세지 발송 처리
+        chatForm.addEventListener("submit", function(e) {
+            e.preventDefault(); // 기본 submit 이벤트 방지
+
+            const senderInput = document.getElementById("sender");
+            const messageInput = document.getElementById("message");
+
+            const safeSender = escapeHTML(senderInput.value);
+            const safeMessage = escapeHTML(messageInput.value);
+
+            // [수정] messageInput은 엘리먼트이므로 .value를 호출해야 합니다.
+            if (!messageInput.value.trim()) return;
+
+            fetch('/sse/send', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                }, // [수정] 쉼표(,) 추가
+                body: new URLSearchParams({ // [수정] 끝에 있던 세미콜론(;) 제거
+                    sender: safeSender,
+                    message: safeMessage
+                })
+            })
+            .then(response => {
+                if (response.ok) {
+                    messageInput.value = "";
+                    messageInput.focus();
+                }
+            })
+            .catch(error => console.log("에러발생", error)); // [수정] 닫는 괄호 하나 제거
+        });
+
+        // 이벤트 핸들러 처리 SSE
+        eventSource.addEventListener('newMessage', (event) => {
+            const rawData = event.data; // 보낸이 : 메시지
+            const separatorIndex = rawData.indexOf(':');
+
+            let sender = "알수없음";
+            let message = rawData;
+            if (separatorIndex !== -1) {
+                sender = rawData.substring(0, separatorIndex);
+                message = rawData.substring(separatorIndex + 2); // 공백 포함
+            }
+
+            const safeSender = escapeHTML(sender);
+            const safeMessage = escapeHTML(message);
+
+            //  사용자가 입력한 데이터와 HTML 혼합해서 동적으로 렌더링 처리
+            const messageHtml = `
+                <div class="msg-wrap">
+                    <div class="msg-box">
+                        <span class="name">${safeSender}</span>
+                        <span class="msg">${safeMessage}</span>
+                    </div>
+                </div>
+            `;
+
+            chatBox.innerHTML += messageHtml;
+            chatBox.scrollTop = chatBox.scrollHeight;
+        });
+    </script>
+</body>
+</html>
